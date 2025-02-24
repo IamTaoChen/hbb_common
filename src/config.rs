@@ -82,10 +82,6 @@ lazy_static::lazy_static! {
         Some(key) if !key.is_empty() => key,
         _ => "",
     }.to_owned());
-    pub const RS_PUB_KEY: &str = match option_env!("RS_PUB_KEY") {
-        Some(key) if !key.is_empty() => key,
-        _ => "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=",
-    };
 }
 
 lazy_static::lazy_static! {
@@ -115,6 +111,12 @@ const CHARS: &[char] = &[
 ];
 
 pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
+pub const PUBLIC_RS_PUB_KEY: &str = "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=";
+
+pub const RS_PUB_KEY: &str = match option_env!("RS_PUB_KEY") {
+    Some(key) if !key.is_empty() => key,
+    _ => PUBLIC_RS_PUB_KEY,
+};
 
 pub const RENDEZVOUS_PORT: i32 = 21116;
 pub const RELAY_PORT: i32 = 21117;
