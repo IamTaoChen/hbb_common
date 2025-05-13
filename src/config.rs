@@ -120,6 +120,8 @@ pub const RS_PUB_KEY: &str = match option_env!("RS_PUB_KEY") {
 
 pub const RENDEZVOUS_PORT: i32 = 21116;
 pub const RELAY_PORT: i32 = 21117;
+pub const WS_RENDEZVOUS_PORT: i32 = 21118;
+pub const WS_RELAY_PORT: i32 = 21119;
 
 macro_rules! serde_field_string {
     ($default_func:ident, $de_func:ident, $default_expr:expr) => {
@@ -327,6 +329,12 @@ pub struct PeerConfig {
         skip_serializing_if = "String::is_empty"
     )]
     pub use_all_my_displays_for_the_remote_session: String,
+    #[serde(
+        rename = "trackpad-speed",
+        default = "PeerConfig::default_trackpad_speed",
+        deserialize_with = "PeerConfig::deserialize_trackpad_speed"
+    )]
+    pub trackpad_speed: i32,
 
     #[serde(
         default,
@@ -380,6 +388,7 @@ impl Default for PeerConfig {
             displays_as_individual_windows: Self::default_displays_as_individual_windows(),
             use_all_my_displays_for_the_remote_session:
                 Self::default_use_all_my_displays_for_the_remote_session(),
+            trackpad_speed: Self::default_trackpad_speed(),
             custom_resolutions: Default::default(),
             options: Self::default_options(),
             ui_flutter: Default::default(),
@@ -577,7 +586,7 @@ impl Config {
         }
         if !id_valid {
             for _ in 0..3 {
-                if let Some(id) = Config::get_auto_id() {
+                if let Some(id) = Config::gen_id() {
                     config.id = id;
                     store = true;
                     break;
@@ -839,6 +848,32 @@ impl Config {
         std::cmp::max(CONFIG2.read().unwrap().serial, SERIAL)
     }
 
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    fn gen_id() -> Option<String> {
+        Self::get_auto_id()
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    fn gen_id() -> Option<String> {
+        let hostname_as_id = BUILTIN_SETTINGS
+            .read()
+            .unwrap()
+            .get(keys::OPTION_ALLOW_HOSTNAME_AS_ID)
+            .map(|v| option2bool(keys::OPTION_ALLOW_HOSTNAME_AS_ID, v))
+            .unwrap_or(false);
+        if hostname_as_id {
+            match whoami::fallible::hostname() {
+                Ok(h) => Some(h.replace(" ", "-")),
+                Err(e) => {
+                    log::warn!("Failed to get hostname, \"{}\", fallback to auto id", e);
+                    Self::get_auto_id()
+                }
+            }
+        } else {
+            Self::get_auto_id()
+        }
+    }
+
     fn get_auto_id() -> Option<String> {
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
@@ -926,7 +961,7 @@ impl Config {
     pub fn get_id() -> String {
         let mut id = CONFIG.read().unwrap().id.clone();
         if id.is_empty() {
-            if let Some(tmp) = Config::get_auto_id() {
+            if let Some(tmp) = Config::gen_id() {
                 id = tmp;
                 Config::set_id(&id);
             }
@@ -1507,6 +1542,24 @@ impl PeerConfig {
         });
         mp
     }
+
+    fn default_trackpad_speed() -> i32 {
+        UserDefaultConfig::read(keys::OPTION_TRACKPAD_SPEED)
+            .parse()
+            .unwrap_or(100)
+    }
+
+    fn deserialize_trackpad_speed<'de, D>(deserializer: D) -> Result<i32, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let v: i32 = de::Deserialize::deserialize(deserializer)?;
+        if v >= 10 && v <= 1000 {
+            Ok(v)
+        } else {
+            Ok(Self::default_trackpad_speed())
+        }
+    }
 }
 
 serde_field_bool!(
@@ -1831,11 +1884,10 @@ impl UserDefaultConfig {
             keys::OPTION_CODEC_PREFERENCE => {
                 self.get_string(key, "auto", vec!["vp8", "vp9", "av1", "h264", "h265"])
             }
-            keys::OPTION_CUSTOM_IMAGE_QUALITY => {
-                self.get_double_string(key, 50.0, 10.0, 0xFFF as f64)
-            }
-            keys::OPTION_CUSTOM_FPS => self.get_double_string(key, 30.0, 5.0, 120.0),
+            keys::OPTION_CUSTOM_IMAGE_QUALITY => self.get_num_string(key, 50.0, 10.0, 0xFFF as f64),
+            keys::OPTION_CUSTOM_FPS => self.get_num_string(key, 30.0, 5.0, 120.0),
             keys::OPTION_ENABLE_FILE_COPY_PASTE => self.get_string(key, "Y", vec!["", "N"]),
+            keys::OPTION_TRACKPAD_SPEED => self.get_num_string(key, 100, 10, 1000),
             _ => self
                 .get_after(key)
                 .map(|v| v.to_string())
@@ -1875,10 +1927,13 @@ impl UserDefaultConfig {
     }
 
     #[inline]
-    fn get_double_string(&self, key: &str, default: f64, min: f64, max: f64) -> String {
+    fn get_num_string<T>(&self, key: &str, default: T, min: T, max: T) -> String
+    where
+        T: ToString + std::str::FromStr + std::cmp::PartialOrd + std::marker::Copy,
+    {
         match self.get_after(key) {
             Some(option) => {
-                let v: f64 = option.parse().unwrap_or(default);
+                let v: T = option.parse().unwrap_or(default);
                 if v >= min && v <= max {
                     v.to_string()
                 } else {
@@ -2284,6 +2339,11 @@ pub fn option2bool(option: &str, value: &str) -> bool {
     }
 }
 
+pub fn use_ws() -> bool {
+    let option = keys::OPTION_ALLOW_WEBSOCKET;
+    option2bool(option, &Config::get_option(option))
+}
+
 pub mod keys {
     pub const OPTION_VIEW_ONLY: &str = "view_only";
     pub const OPTION_SHOW_MONITORS_TOOLBAR: &str = "show_monitors_toolbar";
@@ -2294,6 +2354,7 @@ pub mod keys {
     pub const OPTION_ZOOM_CURSOR: &str = "zoom-cursor";
     pub const OPTION_SHOW_QUALITY_MONITOR: &str = "show_quality_monitor";
     pub const OPTION_DISABLE_AUDIO: &str = "disable_audio";
+    pub const OPTION_ENABLE_REMOTE_PRINTER: &str = "enable-remote-printer";
     pub const OPTION_ENABLE_FILE_COPY_PASTE: &str = "enable-file-copy-paste";
     pub const OPTION_DISABLE_CLIPBOARD: &str = "disable_clipboard";
     pub const OPTION_LOCK_AFTER_SESSION_END: &str = "lock_after_session_end";
@@ -2321,7 +2382,9 @@ pub mod keys {
     pub const OPTION_ENABLE_OPEN_NEW_CONNECTIONS_IN_TABS: &str =
         "enable-open-new-connections-in-tabs";
     pub const OPTION_TEXTURE_RENDER: &str = "use-texture-render";
+    pub const OPTION_ALLOW_D3D_RENDER: &str = "allow-d3d-render";
     pub const OPTION_ENABLE_CHECK_UPDATE: &str = "enable-check-update";
+    pub const OPTION_ALLOW_AUTO_UPDATE: &str = "allow-auto-update";
     pub const OPTION_SYNC_AB_WITH_RECENT_SESSIONS: &str = "sync-ab-with-recent-sessions";
     pub const OPTION_SYNC_AB_TAGS: &str = "sync-ab-tags";
     pub const OPTION_FILTER_AB_BY_INTERSECTION: &str = "filter-ab-by-intersection";
@@ -2356,6 +2419,7 @@ pub mod keys {
     pub const OPTION_CUSTOM_RENDEZVOUS_SERVER: &str = "custom-rendezvous-server";
     pub const OPTION_API_SERVER: &str = "api-server";
     pub const OPTION_KEY: &str = "key";
+    pub const OPTION_ALLOW_WEBSOCKET: &str = "allow-websocket";
     pub const OPTION_PRESET_ADDRESS_BOOK_NAME: &str = "preset-address-book-name";
     pub const OPTION_PRESET_ADDRESS_BOOK_TAG: &str = "preset-address-book-tag";
     pub const OPTION_ENABLE_DIRECTX_CAPTURE: &str = "enable-directx-capture";
@@ -2363,6 +2427,7 @@ pub mod keys {
         "enable-android-software-encoding-half-scale";
     pub const OPTION_ENABLE_TRUSTED_DEVICES: &str = "enable-trusted-devices";
     pub const OPTION_AV1_TEST: &str = "av1-test";
+    pub const OPTION_TRACKPAD_SPEED: &str = "trackpad-speed";
 
     // buildin options
     pub const OPTION_DISPLAY_NAME: &str = "display-name";
@@ -2375,6 +2440,8 @@ pub mod keys {
     pub const OPTION_HIDE_NETWORK_SETTINGS: &str = "hide-network-settings";
     pub const OPTION_HIDE_SERVER_SETTINGS: &str = "hide-server-settings";
     pub const OPTION_HIDE_PROXY_SETTINGS: &str = "hide-proxy-settings";
+    pub const OPTION_HIDE_REMOTE_PRINTER_SETTINGS: &str = "hide-remote-printer-settings";
+    pub const OPTION_HIDE_WEBSOCKET_SETTINGS: &str = "hide-websocket-settings";
     pub const OPTION_HIDE_USERNAME_ON_CARD: &str = "hide-username-on-card";
     pub const OPTION_HIDE_HELP_CARDS: &str = "hide-help-cards";
     pub const OPTION_DEFAULT_CONNECT_PASSWORD: &str = "default-connect-password";
@@ -2382,6 +2449,8 @@ pub mod keys {
     pub const OPTION_ONE_WAY_CLIPBOARD_REDIRECTION: &str = "one-way-clipboard-redirection";
     pub const OPTION_ALLOW_LOGON_SCREEN_PASSWORD: &str = "allow-logon-screen-password";
     pub const OPTION_ONE_WAY_FILE_TRANSFER: &str = "one-way-file-transfer";
+    pub const OPTION_ALLOW_HTTPS_21114: &str = "allow-https-21114";
+    pub const OPTION_ALLOW_HOSTNAME_AS_ID: &str = "allow-hostname-as-id";
 
     // flutter local options
     pub const OPTION_FLUTTER_REMOTE_MENUBAR_STATE: &str = "remoteMenubarState";
@@ -2392,6 +2461,10 @@ pub mod keys {
     pub const OPTION_FLUTTER_PEER_CARD_UI_TYLE: &str = "peer-card-ui-type";
     pub const OPTION_FLUTTER_CURRENT_AB_NAME: &str = "current-ab-name";
     pub const OPTION_ALLOW_REMOTE_CM_MODIFICATION: &str = "allow-remote-cm-modification";
+
+    pub const OPTION_PRINTER_INCOMING_JOB_ACTION: &str = "printer-incomming-job-action";
+    pub const OPTION_PRINTER_ALLOW_AUTO_PRINT: &str = "allow-printer-auto-print";
+    pub const OPTION_PRINTER_SELECTED_NAME: &str = "printer-selected-name";
 
     // android floating window options
     pub const OPTION_DISABLE_FLOATING_WINDOW: &str = "disable-floating-window";
@@ -2441,6 +2514,7 @@ pub mod keys {
         OPTION_CUSTOM_FPS,
         OPTION_CODEC_PREFERENCE,
         OPTION_SYNC_INIT_CLIPBOARD,
+        OPTION_TRACKPAD_SPEED,
     ];
     // DEFAULT_LOCAL_SETTINGS, OVERWRITE_LOCAL_SETTINGS
     pub const KEYS_LOCAL_SETTINGS: &[&str] = &[
@@ -2449,6 +2523,7 @@ pub mod keys {
         OPTION_ENABLE_CONFIRM_CLOSING_TABS,
         OPTION_ENABLE_OPEN_NEW_CONNECTIONS_IN_TABS,
         OPTION_TEXTURE_RENDER,
+        OPTION_ALLOW_D3D_RENDER,
         OPTION_SYNC_AB_WITH_RECENT_SESSIONS,
         OPTION_SYNC_AB_TAGS,
         OPTION_FILTER_AB_BY_INTERSECTION,
@@ -2481,6 +2556,7 @@ pub mod keys {
         OPTION_ENABLE_CLIPBOARD,
         OPTION_ENABLE_FILE_TRANSFER,
         OPTION_ENABLE_CAMERA,
+        OPTION_ENABLE_REMOTE_PRINTER,
         OPTION_ENABLE_AUDIO,
         OPTION_ENABLE_TUNNEL,
         OPTION_ENABLE_REMOTE_RESTART,
@@ -2508,6 +2584,7 @@ pub mod keys {
         OPTION_CUSTOM_RENDEZVOUS_SERVER,
         OPTION_API_SERVER,
         OPTION_KEY,
+        OPTION_ALLOW_WEBSOCKET,
         OPTION_PRESET_ADDRESS_BOOK_NAME,
         OPTION_PRESET_ADDRESS_BOOK_TAG,
         OPTION_ENABLE_DIRECTX_CAPTURE,
@@ -2527,6 +2604,8 @@ pub mod keys {
         OPTION_HIDE_NETWORK_SETTINGS,
         OPTION_HIDE_SERVER_SETTINGS,
         OPTION_HIDE_PROXY_SETTINGS,
+        OPTION_HIDE_REMOTE_PRINTER_SETTINGS,
+        OPTION_HIDE_WEBSOCKET_SETTINGS,
         OPTION_HIDE_USERNAME_ON_CARD,
         OPTION_HIDE_HELP_CARDS,
         OPTION_DEFAULT_CONNECT_PASSWORD,
@@ -2534,6 +2613,8 @@ pub mod keys {
         OPTION_ONE_WAY_CLIPBOARD_REDIRECTION,
         OPTION_ALLOW_LOGON_SCREEN_PASSWORD,
         OPTION_ONE_WAY_FILE_TRANSFER,
+        OPTION_ALLOW_HTTPS_21114,
+        OPTION_ALLOW_HOSTNAME_AS_ID,
     ];
 }
 
