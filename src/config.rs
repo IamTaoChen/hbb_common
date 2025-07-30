@@ -67,14 +67,7 @@ lazy_static::lazy_static! {
     pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref DEFAULT_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
-    pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = {
-        let mut map = HashMap::new();
-        map.insert("enable-ipv6-punch".to_string(), "Y".to_string());
-        map.insert("enable-udp-punch".to_string(), "Y".to_string());
-        map.insert("allow-https-21114".to_string(), "Y".to_string());
-        map.insert("enable-open-new-connections-in-tabs".to_string(), "N".to_string());
-        RwLock::new(map)
-    };
+    pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = {
         match option_env!("DEFAULT_PASSWORD") {
             Some(password) if !password.is_empty() => {
