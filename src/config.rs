@@ -69,6 +69,7 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     // pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
+    pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = {
         match option_env!("DEFAULT_PASSWORD") {
             Some(password) if !password.is_empty() => {
