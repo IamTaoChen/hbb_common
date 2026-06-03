@@ -73,7 +73,7 @@ lazy_static::lazy_static! {
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
-    pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
+    // pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref DEFAULT_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
@@ -91,14 +91,18 @@ lazy_static::lazy_static! {
             _ => Default::default(),
         }
     };
+    pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = {
+        match option_env!("API_SERVER") {
+            Some(api) if !api.is_empty() => {
+                let mut map = HashMap::new();
+                map.insert(keys::OPTION_API_SERVER.to_string(),api.to_string());
+                RwLock::new(map)
+            }
+            _ => Default::default(),
+        }
+    };
     pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new(
         match option_env!("RENDEZVOUS_SERVER") {
-            Some(key) if !key.is_empty() => key,
-            _ => "",
-        }.to_owned()
-    );
-    pub static ref API_SERVER: RwLock<String> = RwLock::new(
-        match option_env!("API_SERVER") {
             Some(key) if !key.is_empty() => key,
             _ => "",
         }.to_owned()
@@ -1267,24 +1271,13 @@ impl Config {
     }
 
     pub fn get_option(k: &str) -> String {
-        let v = get_or(
+        get_or(
             &OVERWRITE_SETTINGS,
             &CONFIG2.read().unwrap().options,
             &DEFAULT_SETTINGS,
             k,
         )
-        .unwrap_or_default();
-        Self::resolve_option_value(k, &v)
-    }
-
-    #[inline]
-    fn resolve_option_value(k: &str, v: &str) -> String {
-        if k == keys::OPTION_API_SERVER {
-            if v.is_empty() {
-                return API_SERVER.read().unwrap().clone();
-            }
-        }
-        v.to_owned()
+        .unwrap_or_default()
     }
 
     pub fn get_bool_option(k: &str) -> bool {
