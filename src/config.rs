@@ -97,6 +97,12 @@ lazy_static::lazy_static! {
             _ => "",
         }.to_owned()
     );
+    pub static ref API_SERVER: RwLock<String> = RwLock::new(
+        match option_env!("API_SERVER") {
+            Some(key) if !key.is_empty() => key,
+            _ => "",
+        }.to_owned()
+    );
 }
 
 #[cfg(target_os = "android")]
@@ -1261,13 +1267,24 @@ impl Config {
     }
 
     pub fn get_option(k: &str) -> String {
-        get_or(
+        let v = get_or(
             &OVERWRITE_SETTINGS,
             &CONFIG2.read().unwrap().options,
             &DEFAULT_SETTINGS,
             k,
         )
-        .unwrap_or_default()
+        .unwrap_or_default();
+        Self::resolve_option_value(k, &v)
+    }
+
+    #[inline]
+    fn resolve_option_value(k: &str, v: &str) -> String {
+        if k == keys::OPTION_API_SERVER {
+            if v.is_empty() {
+                return API_SERVER.read().unwrap().clone();
+            }
+        }
+        v.to_owned()
     }
 
     pub fn get_bool_option(k: &str) -> bool {
