@@ -95,7 +95,7 @@ lazy_static::lazy_static! {
         match option_env!("API_SERVER") {
             Some(api) if !api.is_empty() => {
                 let mut map = HashMap::new();
-                map.insert(keys::OPTION_API_SERVER.to_string(),api.to_string());
+                map.insert("api-server",api.to_string());
                 RwLock::new(map)
             }
             _ => Default::default(),
